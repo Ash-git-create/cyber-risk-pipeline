@@ -8,4 +8,4 @@ sources:
       - name: nvd_cves
       - name: assets
       - name: cisa_kev
-      - name: otx_pulses
+      - name: otx_intel

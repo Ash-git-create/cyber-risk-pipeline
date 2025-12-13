@@ -1,40 +1,81 @@
 steps:
   # 1. Submit Hourly Job to EXISTING Cluster
+  # (No changes here, this step was fine)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args: ['dataproc', 'jobs', 'submit', 'pyspark', 'gs://${PROJECT_ID}-data-lake/scripts/nvd_ingest_hourly.py', '--cluster=cyber-cluster-realtime', '--region=us-central1']
+    secretEnv: ['OTX_API_KEY'] 
 
-  # 2. Convert JSON to NDJSON (With Safety Check)
+  # 2. Convert JSON to NDJSON (With Variable Escaping Fixed)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
     entrypoint: 'sh'
     args:
       - '-c'
       - |
-        apk add --no-cache jq && \
-        mkdir -p temp_live/nvd && \
-        # Try to download. If no files, echo message and exit gracefully.
-        if gsutil -m cp -r gs://${PROJECT_ID}-data-lake/raw/nvd_hourly/*.json temp_live/nvd/; then
-          echo "Files found. Converting..."
-          for f in temp_live/nvd/*.json; do jq -c '.[]' "$f" > "${f}.ndjson"; done
-          gsutil -m cp temp_live/nvd/*.ndjson gs://${PROJECT_ID}-data-lake/ndjson/nvd_hourly/
-        else
-          echo "No new NVD data found in this run. Skipping conversion."
-        fi
+        apk add --no-cache jq
+        
+        # Helper function with FIXED variables ($$ instead of $)
+        convert_folder() {
+            SOURCE_TYPE=$$1
+            RAW_PATH="gs://${PROJECT_ID}-data-lake/raw/$${SOURCE_TYPE}"
+            NDJSON_PATH="gs://${PROJECT_ID}-data-lake/ndjson/$${SOURCE_TYPE}"
+            LOCAL_TEMP="temp_live/$${SOURCE_TYPE}"
+            
+            mkdir -p "$${LOCAL_TEMP}"
+            
+            # Check if files exist
+            if gsutil ls "$${RAW_PATH}/*.json" > /dev/null 2>&1; then
+                echo "Found $${SOURCE_TYPE} data. Downloading..."
+                gsutil -m cp "$${RAW_PATH}/*.json" "$${LOCAL_TEMP}/"
+                
+                echo "Converting $${SOURCE_TYPE} to NDJSON..."
+                for f in "$${LOCAL_TEMP}"/*.json; do 
+                    # Use jq to unwrap array if it's an array, or print as is
+                    jq -c '.[]?' "$$f" > "$${f}.ndjson"
+                done
+                
+                echo "Uploading converted files..."
+                gsutil -m cp "$${LOCAL_TEMP}/*.ndjson" "$${NDJSON_PATH}/"
+            else
+                echo "No new $${SOURCE_TYPE} data found in this run."
+            fi
+        }
 
-  # 3. Load to BigQuery (Append Mode)
+        # Run conversion for all 3 sources
+        convert_folder "nvd_hourly"
+        convert_folder "cisa"
+        convert_folder "otx"
+
+  # 3. Load to BigQuery (With Variable Escaping Fixed)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Check if files exist before trying to load
-        if gsutil ls gs://${PROJECT_ID}-data-lake/ndjson/nvd_hourly/*.ndjson; then
-           bq load --source_format=NEWLINE_DELIMITED_JSON --autodetect raw_layer.nvd_cves gs://${PROJECT_ID}-data-lake/ndjson/nvd_hourly/*.ndjson
-        else
-           echo "Nothing to load."
-        fi
+        # Helper function with FIXED variables
+        load_table() {
+            SOURCE_TYPE=$$1
+            TABLE_NAME=$$2
+            NDJSON_PATH="gs://${PROJECT_ID}-data-lake/ndjson/$${SOURCE_TYPE}/*.ndjson"
+            
+            # Check if there are files to load
+            if gsutil ls "$${NDJSON_PATH}" > /dev/null 2>&1; then
+                echo "Loading $${SOURCE_TYPE} into $${TABLE_NAME}..."
+                bq load --source_format=NEWLINE_DELIMITED_JSON \
+                        --autodetect \
+                        raw_layer.$${TABLE_NAME} \
+                        "$${NDJSON_PATH}"
+            else
+                echo "Nothing to load for $${TABLE_NAME}."
+            fi
+        }
 
-  # 4. Run dbt (Deduplicate and Score)
+        # Load the 3 tables
+        load_table "nvd_hourly" "nvd_cves"
+        load_table "cisa" "cisa_kev"
+        load_table "otx" "otx_intel"
+
+  # 4. Run dbt
   - name: 'python:3.9-slim'
     entrypoint: 'bash'
     args:
@@ -44,6 +85,12 @@ steps:
         dbt run --profiles-dir . --project-dir .
     env:
       - 'GCP_PROJECT=${PROJECT_ID}'
+
+# Tell Cloud Build where to find the secret for Step 1
+availableSecrets:
+  secretManager:
+  - versionName: projects/${PROJECT_ID}/secrets/otx-api-key/versions/latest
+    env: 'OTX_API_KEY'
 
 options:
   logging: CLOUD_LOGGING_ONLY

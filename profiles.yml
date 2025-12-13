@@ -3,8 +3,9 @@ cyber_risk:
   outputs:
     dev:
       type: bigquery
-      method: oauth
-      project: cyberai-480816 # Update with your Project ID
-      dataset: dbt_prod
+      method: oauth  # <--- CRITICAL: Uses the Cloud Build robot's own identity
+      project: cyberai-480816
+      dataset: raw_layer
       threads: 4
+      timeout_seconds: 300
       location: US
