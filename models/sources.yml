@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: raw_layer
+    database: cyberai-480816  
+    schema: raw_layer
+    tables:
+      - name: nvd_cves
+      - name: assets
+      - name: cisa_kev
+      - name: otx_pulses

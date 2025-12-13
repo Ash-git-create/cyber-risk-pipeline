@@ -1,0 +1,49 @@
+steps:
+  # 1. Submit Hourly Job to EXISTING Cluster
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args: ['dataproc', 'jobs', 'submit', 'pyspark', 'gs://${PROJECT_ID}-data-lake/scripts/nvd_ingest_hourly.py', '--cluster=cyber-cluster-realtime', '--region=us-central1']
+
+  # 2. Convert JSON to NDJSON (With Safety Check)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        apk add --no-cache jq && \
+        mkdir -p temp_live/nvd && \
+        # Try to download. If no files, echo message and exit gracefully.
+        if gsutil -m cp -r gs://${PROJECT_ID}-data-lake/raw/nvd_hourly/*.json temp_live/nvd/; then
+          echo "Files found. Converting..."
+          for f in temp_live/nvd/*.json; do jq -c '.[]' "$f" > "${f}.ndjson"; done
+          gsutil -m cp temp_live/nvd/*.ndjson gs://${PROJECT_ID}-data-lake/ndjson/nvd_hourly/
+        else
+          echo "No new NVD data found in this run. Skipping conversion."
+        fi
+
+  # 3. Load to BigQuery (Append Mode)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Check if files exist before trying to load
+        if gsutil ls gs://${PROJECT_ID}-data-lake/ndjson/nvd_hourly/*.ndjson; then
+           bq load --source_format=NEWLINE_DELIMITED_JSON --autodetect raw_layer.nvd_cves gs://${PROJECT_ID}-data-lake/ndjson/nvd_hourly/*.ndjson
+        else
+           echo "Nothing to load."
+        fi
+
+  # 4. Run dbt (Deduplicate and Score)
+  - name: 'python:3.9-slim'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        pip install dbt-bigquery && \
+        dbt run --profiles-dir . --project-dir .
+    env:
+      - 'GCP_PROJECT=${PROJECT_ID}'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

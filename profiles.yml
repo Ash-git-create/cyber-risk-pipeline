@@ -1,0 +1,10 @@
+cyber_risk:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: cyberai-480816 # Update with your Project ID
+      dataset: dbt_prod
+      threads: 4
+      location: US

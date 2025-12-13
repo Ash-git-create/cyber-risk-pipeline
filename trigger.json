@@ -1,0 +1,15 @@
+{
+  "name": "hourly-risk-trigger",
+  "description": "Triggered by Pub/Sub",
+  "pubsubConfig": {
+    "topic": "projects/cyberai-480816/topics/hourly-risk-topic"
+  },
+  "sourceToBuild": {
+    "storageSource": {
+      "bucket": "cyberai-480816_cloudbuild",
+      "object": "source/latest.tgz"
+    }
+  },
+  "filename": "cloudbuild.yaml",
+  "serviceAccount": "projects/cyberai-480816/serviceAccounts/dataproc-worker@cyberai-480816.iam.gserviceaccount.com"
+}
