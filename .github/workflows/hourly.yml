@@ -1,27 +1,32 @@
-name: Hourly Risk Pipeline
+name: Hourly Cyber Risk Pipeline
 
 on:
+  # 1. Run automatically at minute 0 of every hour
   schedule:
-    - cron: '0 * * * *'  # Runs every hour
-  workflow_dispatch:      # Allows manual trigger button
+    - cron: '0 * * * *'
+  # 2. Allow manual trigger button in GitHub UI (for demos)
+  workflow_dispatch:
 
 jobs:
-  run-cloud-build:
+  run-pipeline:
     runs-on: ubuntu-latest
-    permissions:
-      contents: 'read'
-      id-token: 'write'
-
     steps:
-      - uses: actions/checkout@v3
+      # A. Check out your code
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
+      # B. Authenticate to Google Cloud
+      # We use a Secret Key stored in GitHub
       - id: 'auth'
+        name: 'Authenticate to GCP'
         uses: 'google-github-actions/auth@v1'
         with:
           credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
+      # C. Setup gcloud CLI
       - name: 'Set up Cloud SDK'
         uses: 'google-github-actions/setup-gcloud@v1'
 
+      # D. Run the exact same command you use manually!
       - name: 'Submit Build'
-        run: gcloud builds submit --config=cloudbuild.yaml .
+        run: 'gcloud builds submit --config=cloudbuild.yaml .'
