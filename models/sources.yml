@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: raw_layer
-    database: cyberai-480816  
+    database: "{{ env_var('GCP_PROJECT_ID', 'cyberai-480816') }}"
     schema: raw_layer
     tables:
       - name: nvd_cves

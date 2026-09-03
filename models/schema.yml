@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: stg_nvd
+    description: >
+      Latest record per CVE from the NVD 2.0 feed, flattened out of the raw
+      JSON. Rows without a CVSS v3.1 base score are dropped.
+    columns:
+      - name: cve_id
+        description: NVD CVE identifier.
+        tests: [not_null, unique]
+      - name: base_score
+        description: CVSS v3.1 base score, 0 to 10.
+        tests: [not_null]
+      - name: severity
+        description: CVSS v3.1 qualitative severity.
+        tests:
+          - accepted_values:
+              values: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+
+  - name: stg_otx
+    description: Latest AlienVault OTX pulse count per CVE.
+    columns:
+      - name: cve_id
+        tests: [not_null, unique]
+      - name: pulse_count
+        tests: [not_null]
+
+  - name: prioritized_risks
+    description: >
+      Assets scored against CVEs. Note that assets and CVEs are cross-joined,
+      because the NVD ingest carries no CPE data to match software versions
+      against. See Known Limitations in the README.
+    columns:
+      - name: cve_id
+        tests: [not_null]
+      - name: hostname
+        tests: [not_null]
+      - name: final_risk_score
+        tests: [not_null]
+      - name: action_plan
+        tests:
+          - accepted_values:
+              values:
+                - 'CRITICAL: Patch Immediately (Active Exploit)'
+                - 'HIGH: Patch Next (Trending Threat)'
+                - 'Routine Patching'
+
+seeds:
+  - name: assets
+    description: >
+      Example host inventory. Eight rows so the pipeline runs from a clone.
+      Replace with a real inventory before using the output for anything.
+    columns:
+      - name: hostname
+        tests: [not_null, unique]
+      - name: criticality_score
+        tests: [not_null]

@@ -8,7 +8,7 @@ from google.cloud import secretmanager
 from google.cloud import storage
 
 # --- CONFIGURATION ---
-PROJECT_ID = "cyberai-480816"
+PROJECT_ID = os.getenv("GCP_PROJECT_ID", "cyberai-480816")
 BUCKET_NAME = f"{PROJECT_ID}-data-lake"
 
 # Secrets
@@ -20,10 +20,12 @@ NVD_BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 CISA_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 OTX_BASE_URL = "https://otx.alienvault.com/api/v1/indicators/cve"
 
-# DYNAMIC TIME WINDOW: Fetch only the last 70 minutes (10 min overlap safety)
+# Ingest window. Set INGEST_WINDOW_MINUTES=70 to match the hourly schedule
+# (60 minutes plus 10 minutes of overlap). Defaults to 7 days, which is what
+# the last runs used, so a single manual run returns a useful backfill.
 NOW = datetime.utcnow()
-#START_DATE = (NOW - timedelta(minutes=70)).strftime("%Y-%m-%dT%H:%M:%S.000")
-START_DATE = (NOW - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S.000")
+WINDOW_MINUTES = int(os.getenv("INGEST_WINDOW_MINUTES", 7 * 24 * 60))
+START_DATE = (NOW - timedelta(minutes=WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%S.000")
 END_DATE = NOW.strftime("%Y-%m-%dT%H:%M:%S.000")
 
 def get_secret(secret_id):

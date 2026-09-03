@@ -8,7 +8,9 @@
 
 This project implements an automated pipeline that calculates **Real-Time Cyber Risk Scores** for internal infrastructure.
 
-It ingests vulnerability data from three distinct sources, normalizes it, and enriches it with threat intelligence to prioritize remediation efforts. The pipeline is fully automated using **GitHub Actions** and **Google Cloud Build**, processing data via **Dataproc (Spark)** and **BigQuery**, with transformations managed by **dbt**.
+It ingests vulnerability data from three sources, normalizes it, and enriches it with threat intelligence to prioritize remediation. The pipeline is automated with **GitHub Actions** and **Google Cloud Build**, with **BigQuery** as the warehouse and **dbt** for transformations.
+
+> **Status:** ran hourly from December 2025 to January 2026, 597 successful builds. The schedule is currently disabled, so the tables are not being refreshed.
 
 ### **The Problem**
 
@@ -27,7 +29,7 @@ A data-driven scoring engine that prioritizes risks based on:
 
 ## 🏗️ Architecture
 
-1.  **Ingestion (ETL):** A Python script running on **Dataproc** fetches data from NVD (API 2.0), CISA, and OTX.
+1.  **Ingestion (ETL):** A Python script fetches data from NVD (API 2.0), CISA and OTX. It is submitted to a **Dataproc** cluster by `cloudbuild.yaml`, but the script itself is single-threaded `requests` code and does not use Spark. Cloud Run would be the cheaper host, see Known Limitations.
 2.  **Storage (Data Lake):** Raw JSON data is stored in **Google Cloud Storage (GCS)**.
 3.  **Loading (ELT):** **Cloud Build** triggers `bq load` to ingest data into **BigQuery** (Raw Layer).
 4.  **Transformation:** **dbt** cleans, joins, and applies the Risk Scoring Formula to generate the `prioritized_risks` table.
@@ -48,7 +50,7 @@ A data-driven scoring engine that prioritizes risks based on:
       * `Risk Score = (CVSS * Asset_Criticality) * (2.0 if Exploited) * (1.5 if Trending)`
   * **Infrastructure as Code:**
       * Pipeline defined in `cloudbuild.yaml`.
-      * Scheduling defined in `.github/workflows/hourly_run.yml`.
+      * Scheduling defined in `.github/workflows/hourly.yml`.
 
 -----
 
@@ -58,7 +60,7 @@ A data-driven scoring engine that prioritizes risks based on:
 | :--- | :--- | :--- |
 | **Orchestrator** | Google Cloud Build | Manages the step-by-step pipeline execution. |
 | **Scheduler** | GitHub Actions | Triggers the build every hour (Cron). |
-| **Processing** | Google Dataproc | Serverless Spark cluster for API fetching. |
+| **Job host** | Google Dataproc | Cluster the ingestion script is submitted to. The script is not a Spark job. |
 | **Warehouse** | BigQuery | Stores raw JSON and final analytical tables. |
 | **Transformation** | dbt (Data Build Tool) | Compiles SQL models and manages schema. |
 | **Storage** | Cloud Storage (GCS) | Data Lake for raw JSON/NDJSON files. |
@@ -95,9 +97,11 @@ gcloud builds submit --config=cloudbuild.yaml .
 
 ### **4. Automated Execution**
 
-The pipeline is configured to run automatically at **minute 0 of every hour** via GitHub Actions.
+The workflow is configured to run at **minute 0 of every hour** via GitHub Actions. It ran on that schedule from December 2025 to January 2026 for 597 successful builds, and is currently disabled.
 
-  * Workflow File: `.github/workflows/hourly_run.yml`
+  * Workflow File: `.github/workflows/hourly.yml`
+
+Note that `nvd_ingest_hourly.py` currently requests a **7-day** window, not the 70-minute window the hourly cadence implies. Change `START_DATE` before re-enabling the schedule.
 
 -----
 
@@ -130,20 +134,35 @@ ORDER BY final_risk_score DESC
 ## 📂 Repository Structure
 
 ```text
-├── .github/workflows/   # GitHub Actions (Cron Scheduler)
-├── models/              # dbt SQL Models
+├── .github/workflows/   # GitHub Actions (cron scheduler)
+│   └── hourly.yml
+├── models/              # dbt SQL models
 │   ├── prioritized_risks.sql
 │   ├── stg_nvd.sql
-│   └── stg_otx.sql
-├── nvd_ingest_hourly.py # Main Python Ingestion Script
-├── cloudbuild.yaml      # Pipeline Orchestration Config
-├── dbt_project.yml      # dbt Configuration
-├── profiles.yml         # BigQuery Connection Settings
-└── README.md            # Documentation
+│   ├── stg_otx.sql
+│   ├── schema.yml       # Column tests and model docs
+│   └── sources.yml      # BigQuery raw_layer sources
+├── seeds/
+│   └── assets.csv       # Example host inventory, 8 rows
+├── nvd_ingest_hourly.py # Ingestion script (NVD, CISA, OTX)
+├── cloudbuild.yaml      # Pipeline orchestration config
+├── dbt_project.yml      # dbt configuration
+├── profiles.yml         # BigQuery connection settings
+└── README.md
 ```
 
 -----
 
+## ⚠️ Known Limitations
+
+Worth reading before treating the output as a real risk ranking.
+
+  * **Assets are cross-joined against every CVE.** `prioritized_risks.sql` has no product or version match, because the NVD ingest keeps only `cve_id`, `description`, `base_score` and `severity`, with no CPE data. Every CVE is therefore scored against every host, so the ranking reflects severity and asset criticality but not whether a host actually runs the affected software. Fixing this means ingesting the NVD `configurations` block and holding a per-host software inventory to match against.
+  * **The ingestion script is not a Spark job.** It is submitted to Dataproc but runs single-threaded `requests` code. A Cloud Run job would do the same work for less.
+  * **Demo mode injects known historical CVEs** such as Log4Shell so the scoring output is non-empty during quiet ingest windows. Those rows are not fresh findings.
+  * **The `assets` table is a seed**, not a real inventory. `seeds/assets.csv` holds eight example hosts.
+  * **The schedule is off.** Last successful run 9 January 2026.
+
 ## 🛡️ License
 
-This project is for educational and portfolio purposes. Data sources (NVD, CISA, OTX) are subject to their respective terms of use.
+MIT. See [`LICENSE`](LICENSE). Data sources (NVD, CISA, OTX) are subject to their respective terms of use.

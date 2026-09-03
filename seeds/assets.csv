@@ -1,0 +1,9 @@
+hostname,ip_address,os,criticality_score
+web-prod-01,10.20.1.11,Ubuntu 22.04,5
+web-prod-02,10.20.1.12,Ubuntu 22.04,5
+db-prod-01,10.20.2.21,RHEL 9,5
+api-prod-01,10.20.1.31,Ubuntu 22.04,4
+jenkins-01,10.20.3.41,Debian 12,3
+file-share-01,10.20.4.51,Windows Server 2019,3
+dev-sandbox-01,10.20.9.61,Ubuntu 22.04,1
+backup-01,10.20.5.71,RHEL 9,2
